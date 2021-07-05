@@ -1,0 +1,54 @@
+#!/bin/sh
+
+# function used to post-prcess data from both CFD and DEM sub-models
+# automatically called in the "Allrun.sh" script, but can be called separately as well
+
+cd ${0%/*} || exit 1    # Run from this directory
+
+# Source tutorial run functions
+source $WM_PROJECT_DIR/bin/tools/RunFunctions
+
+#- define variables
+casePath="$(dirname "$(readlink -f ${BASH_SOURCE[0]})")"
+
+
+#---------------------------------------------------------
+# DEM Post-processing
+#---------------------------------------------------------
+# get VTK data from liggghts dump file -> convert to .vtk
+cd $casePath/DEM/post
+python -i $CFDEM_LPP_DIR/lpp.py dump*.particle
+
+# organize dump files
+[ ! -d dumpDir ] && mkdir dumpDir	# create directory for dump files
+mv dump*.particle dumpDir > /dev/null 2>&1	# move all dump files into directory
+
+# organize .vtk bounding box files
+[ ! -d boundingBoxDir ] && mkdir boundingBoxDir	# create directory for dump files
+mv *_boundingBox.vtk boundingBoxDir > /dev/null 2>&1	# move all dump files into directory
+
+# convert .vtk particle files to .vtp; create .pvd file for paraview
+$casePath/vtkToVtp.py $casePath/DEM/post
+
+# organize .vtk particle files
+[ ! -d vtkParticleDir ] && mkdir vtkParticleDir
+mv *.vtk vtkParticleDir > /dev/null 2>&1
+
+# # organize .vtp files
+# [ ! -d runVtp ] && mkdir runVtp	# create directory for dump files
+# mv *.vtp runVtp > /dev/null 2>&1	# move all dump files into directory
+
+
+#---------------------------------------------------------
+# CFD Post-processing
+#---------------------------------------------------------
+# remove initial conditions case and reconstruct CFD results
+cd $casePath/CFD
+ls -d processor* | xargs -I {} rm -rf ./{}/0
+#rm -rf 0.01         # remove IC folder (for reconstruction)
+#rm log.reconstructPar > /dev/null 2>&1
+#runApplication reconstructPar				# not needed -> just use "Decmposed Case" in paraview
+touch CFD.foam      # create foam file for CFD mesh
+cp -r 0.orig 0   # restore initial conditions folder
+
+#------------------------------------------------------------------------------

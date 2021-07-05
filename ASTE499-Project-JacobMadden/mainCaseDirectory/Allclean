@@ -1,0 +1,61 @@
+#!/bin/bash
+cd ${0%/*} || exit 1    # Run from this directory
+
+# function used to clean the entire CFD-DEM case directory before starting a new run
+# by default, it retains the old CFD mesh and old DEM restart file
+# this can be modified by adjusting the values below
+
+# Include CFD run functions
+source $CFDEM_SRC_DIR/lagrangian/cfdemParticle/etc/functions.sh
+source $WM_PROJECT_DIR/bin/tools/CleanFunctions
+
+#- define variables
+casePath="$(dirname "$(readlink -f ${BASH_SOURCE[0]})")"
+
+# clean case
+keepDEMrestart="true"
+keepCFDmesh="true"
+#cleanCFDEMcase $casePath/CFD $keepDEMrestart $keepCFDmesh > /dev/null 2>&1
+
+# CFD
+cd $casePath/CFD
+[ ! -d 0.orig ] && cp -r 0 0.orig	# copy initial conditions folder to save
+if [ $keepCFDmesh == "true" ]; then	
+    mv constant/polyMesh constant/polyMesh_backup
+    cleanCase
+    mv constant/polyMesh_backup constant/polyMesh
+    echo "Keeping CFD mesh files"
+else
+    cleanCase
+    echo "Deleting CFD mesh files"
+fi
+cp -r 0.orig 0	# restore initial conditions folder
+
+# CFDEM
+rm -r $casePath/CFD/clockData > /dev/null 2>&1
+rm -r $casePath/CFD/particleProbes > /dev/null 2>&1
+rm -r $casePath/CFD/averageProps/ > /dev/null 2>&1
+rm -r $casePath/CFD/octave/octave-core > /dev/null 2>&1
+rm -r $casePath/CFD/octave/octave-workspace > /dev/null 2>&1
+rm -r $casePath/remotePlace > /dev/null 2>&1
+rm -r $casePath/CFD/oldProcDirs > /dev/null 2>&1
+rm -r $casePath/CFD/tmp.balance > /dev/null 2>&1
+rm $casePath/CFD/callgrind.out.* > /dev/null 2>&1
+rm -r $casePath/CFD/hpctoolkit-* > /dev/null 2>&1
+rm  $casePath/log_* > /dev/null 2>&1
+
+# DEM
+if [ $keepDEMrestart == "true" ]; then
+    echo "Keeping DEM restart files"
+    cp -r $casePath/DEM/post/restart $casePath/DEM
+else
+    echo "Deleting DEM restart files"
+fi
+rm -rf $casePath/DEM/post/* > /dev/null 2>&1
+#touch $casePath/DEM/post/.gitignore > /dev/null 2>&1
+#touch $casePath/DEM/post/restart/.gitignore
+rm  $casePath/DEM/tmp.lammps.variable > /dev/null 2>&1
+rm  $casePath/DEM/log* > /dev/null 2>&1
+mv $casePath/DEM/restart $casePath/DEM/post/
+
+echo "Finished cleaning"

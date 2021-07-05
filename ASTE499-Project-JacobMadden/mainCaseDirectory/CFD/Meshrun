@@ -1,0 +1,30 @@
+#!/bin/sh
+
+# function used to generate a new CFD mesh
+# used for intermediary testing of CFD mesh and sub-model
+
+cd ${0%/*} || exit 1    # Run from this directory
+
+# Source tutorial run functions
+source $WM_PROJECT_DIR/bin/tools/RunFunctions
+
+# Surface feature extraction
+runApplication surfaceFeatureExtract
+
+# base domain block mesh
+runApplication blockMesh
+
+# decompose domain for snappyHexMesh and run sHM
+runApplication decomposePar -copyZero
+echo "Running snappyHexMesh on 8 processors"
+mpirun -np 8 snappyHexMesh -overwrite -parallel > log.snappyHexMesh
+
+runParallel renumberMesh -overwrite
+
+# reconstruct mesh from sHM output
+runApplication reconstructParMesh -constant -mergeTol 1e-06
+
+# check mesh quality 
+checkMesh
+
+#------------------------------------------------------------------------------

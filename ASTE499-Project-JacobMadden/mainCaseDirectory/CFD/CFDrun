@@ -1,0 +1,59 @@
+#!/bin/sh
+
+# function used to run only the CFD sub-model of this simulation
+# used for intermediary testing of CFD paramters and mesh generation
+
+cd ${0%/*} || exit 1    # Run from this directory
+
+# Include CFD run functions
+source $WM_PROJECT_DIR/bin/tools/RunFunctions
+
+# check if mesh was built
+if [ -f "constant/polyMesh/points" ]; then
+    echo "Using old mesh"
+    ./CFDclean
+else
+    echo "Building new mesh"
+
+    # remove any trace of old mesh
+    ./Meshclean
+
+    # Surface feature extraction
+	runApplication surfaceFeatureExtract
+
+	# base domain block mesh
+	runApplication blockMesh
+
+	runApplication decomposePar -copyZero
+	#runApplication decomposePar -fileHandler collated
+	echo "Running snappyHexMesh on 8 processors"
+	mpirun -np 8 snappyHexMesh -overwrite -parallel > log.snappyHexMesh
+	#runParallel snappyHexMesh -parallel -overwrite
+	#runParallel snappyHexMesh -overwrite -fileHandler collated
+	runApplication reconstructParMesh -constant -mergeTol 1e-06
+fi
+
+[ ! -d 0 ] && cp -r 0.orig 0
+
+#mpirun -n 8 renumberMesh -overwrite -runParallel 	# optimize mesh
+#runParallel snappyHexMesh -overwrite				# run snappyHexMesh in parallel
+#runApplication reconstructParMesh -constant		# parallel reconstruction of mesh
+
+
+########################################
+# Used for actual parallel simulation run
+########################################
+
+runApplication patchSummary
+#runParallel potentialFoam
+echo "Running decomposePar"
+decomposePar -force -copyZero > log.decomposePar2
+echo "Running pisoFoam on 8 processors"
+mpirun -np 8 pisoFoam -parallel > log.pisoFoam
+#runParallel $(getApplication)
+
+#runApplication reconstructParMesh -constant
+echo "Running reconstructPar"
+runApplication reconstructPar
+
+#------------------------------------------------------------------------------

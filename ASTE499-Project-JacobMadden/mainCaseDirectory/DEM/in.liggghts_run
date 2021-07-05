@@ -1,0 +1,88 @@
+echo            both
+log             ../DEM/log.liggghts
+thermo_log      ../DEM/post/thermo.txt
+
+# atom style for data passing
+atom_style      granular
+atom_modify     map array
+communicate     single vel yes
+
+boundary        m m m
+newton          off
+
+# decomposiiton of domain for parallel run
+units           si
+processors      4 1 2 #2 4 1 # updated to correspond with subdomains set in .../CFD/system/decomposeParCFD
+
+# read the restart file
+read_restart    ../DEM/post/restart/liggghts.restart
+
+# define particle neighbor parameters
+neighbor        0.0005 bin
+neigh_modify    delay 0
+
+# Material properties required for granular pair styles
+fix         m1 all property/global youngsModulus peratomtype 5.e6
+fix         m2 all property/global poissonsRatio peratomtype 0.45
+fix         m3 all property/global coefficientRestitution peratomtypepair 1 0.3
+fix         m4 all property/global coefficientFriction peratomtypepair 1 0.5
+
+# particle inetraction model
+pair_style  gran model hertz tangential history # Hertzian
+pair_coeff  * *
+
+# timestep, gravity
+timestep    0.00001
+fix         gravi all gravity 9.81 vector 0.0 0.0 -1.0
+
+# walls
+fix         zwalls1 all wall/gran model hertz tangential history primitive type 1  zplane 0.0
+
+# import triangular mesh for particle domain
+fix			cad all mesh/surface file ../DEM/meshes/volume.stl type 1 curvature_tolerant yes
+# use the imported mesh as granular wall
+fix 		granwalls all wall/gran model hertz tangential history mesh n_meshes 1 meshes cad
+
+# cfd coupling parameters
+fix         cfd all couple/cfd couple_every 10 mpi
+fix         cfd2 all couple/cfd/force/implicit
+#fix        cfd2 all couple/cfd/force/accumulator RongDrag 10 1.5e-3
+#fix        cfd2 all couple/cfd/force/implicit/accumulated #CrankNicolson 0.5
+
+# apply nve integration to all particles that are inserted as single particles
+fix         integr all nve/sphere
+
+# center of mass
+compute     centerOfMass all com
+
+# compute explicit dragforce on particles
+compute     explDrag all reduce update_on_run_end yes sum f_dragforce[1] f_dragforce[2] f_dragforce[3]
+
+# sum of explicit and implicit drag force given from CFD to DEM
+variable    totalDragX equal f_cfd2[1]
+variable    totalDragY equal f_cfd2[2]
+variable    totalDragZ equal f_cfd2[3]
+
+# explicit drag force given from CFD to DEM
+variable    explicitDragX equal c_explDrag[1]
+variable    explicitDragY equal c_explDrag[2]
+variable    explicitDragZ equal c_explDrag[3]
+
+variable    time equal step*dt
+fix         extra all print 10 "${time} ${explicitDragX} ${explicitDragY} ${explicitDragZ} ${totalDragX} ${totalDragY} ${totalDragZ}" file ../DEM/post/forces.txt title "# time expDrag(X Y Z) totDrag(X Y Z)"
+
+# screen output 
+compute         rke all erotate/sphere
+thermo_style    custom step atoms ke c_rke vol c_centerOfMass[3] # c_explDrag[1] c_explDrag[2] c_explDrag[3] f_cfd2[1] f_cfd2[2] f_cfd2[3]
+thermo          50 # 10
+thermo_modify   lost ignore norm no
+compute_modify  thermo_temp dynamic yes
+
+# file output with particle data
+# updated N (timesteps/dump) from 5000 to 50 [argument #4]
+dump            dmp all custom 50 ../DEM/post/dump*.particle id type x y z vx vy vz fx fy fz f_dragforce[1] f_dragforce[2] f_dragforce[3] radius 
+#dump_modify	dmp time yes
+
+#run             0
+run             1000
+
